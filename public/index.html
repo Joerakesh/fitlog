@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FitLog — Personal Fitness Tracker</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090a0c;--panel:#141619;--muted:#9298a1;--line:#282c32;--red:#ef3340;--green:#3bc987}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f4f5f6;font:15px/1.5 Inter,system-ui,Segoe UI,sans-serif}
+    header{display:flex;justify-content:space-between;align-items:center;padding:20px max(20px,calc((100% - 1100px)/2));border-bottom:1px solid var(--line);position:sticky;top:0;background:#090a0cf2;backdrop-filter:blur(12px);z-index:3}
+    .brand{font-weight:900;letter-spacing:1px}.brand span{color:var(--red)}main{max-width:1100px;margin:28px auto;padding:0 20px}
+    h1{font-size:clamp(28px,5vw,42px);margin:0 0 5px}h2{font-size:20px;margin:0 0 14px}h3{font-size:16px;margin:0}
+    .muted,.hint{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:20px 0}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}.metric{font-size:30px;font-weight:800}
+    button,input,select{font:inherit}button{border:0;border-radius:10px;padding:10px 14px;background:var(--red);color:white;font-weight:700;cursor:pointer}
+    button.secondary{background:#292d33}button:disabled{opacity:.45;cursor:not-allowed}.plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+    .plan{padding:18px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px}.plan strong{display:block;font-size:22px}.plan small{color:var(--muted)}
+    .exercise{border:1px solid var(--line);border-radius:14px;padding:15px;margin:12px 0;background:#101215}
+    .setrow{display:grid;grid-template-columns:55px 1fr 1fr 100px;gap:8px;align-items:center;margin-top:10px}
+    input{min-width:0;width:100%;background:#090b0e;color:white;border:1px solid var(--line);padding:9px;border-radius:8px}
+    .actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}.hidden{display:none!important}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}.tabs button{background:#252930}.tabs button.active{background:var(--red)}
+    table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:10px;border-bottom:1px solid var(--line)}.pill{font-size:12px;color:var(--green)}
+    @media(max-width:520px){header{padding:15px 18px}.setrow{grid-template-columns:42px 1fr 1fr}.setrow button{grid-column:2/4}.card{padding:14px}}
+  </style>
+</head>
+<body>
+<header><div class="brand">FIT<span>LOG</span></div><div class="muted" id="connection">Connecting…</div></header>
+<main>
+  <section>
+    <p class="muted">YOUR PERSONAL TRAINING JOURNAL</p><h1>Train. Record. Progress.</h1>
+    <p class="muted">Choose a workout, log every set, and review your progress.</p>
+  </section>
+  <nav class="tabs">
+    <button class="active" data-tab="workout">Workout</button><button data-tab="history">History</button>
+    <button data-tab="progress">Progress</button><button data-tab="sleep">Sleep</button><button data-tab="plans">Plan settings</button>
+  </nav>
+
+  <section id="tab-workout">
+    <h2>Choose today's workout</h2><div class="plans" id="planChoices"></div>
+    <div id="activeWorkout" class="hidden">
+      <div class="card" style="margin-top:16px"><div class="muted" id="workoutMeta">ACTIVE SESSION</div><h2 id="workoutTitle">Workout</h2><div id="exerciseList"></div>
+        <div class="actions"><button id="finishWorkout">Finish workout</button><button class="secondary" id="cancelWorkout">Cancel</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-history" class="hidden"><h2>Workout history</h2><div id="historyList" class="card">Loading…</div></section>
+  <section id="tab-progress" class="hidden"><h2>Progress overview</h2><div id="metrics" class="grid"></div><div class="card"><h3>Best weight by exercise</h3><div id="prs"></div></div></section>
+  <section id="tab-sleep" class="hidden"><h2>Sleep tracking</h2><div class="card"><p class="muted">Press before going to sleep, then press again after waking up.</p><div id="sleepState"></div><div class="actions"><button id="sleepStart">Start sleep</button><button id="sleepWake" class="secondary">I woke up</button></div></div><div class="card" style="margin-top:14px"><h3>Recent sleep</h3><div id="sleepHistory"></div></div></section>
+  <section id="tab-plans" class="hidden"><h2>Workout plan settings</h2><p class="muted">Adjust target sets, reps and rest time. These changes apply to future sessions.</p><div id="planEditor"></div></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let plans=[], currentWorkout=null, currentPlan=null, timer=null;
+async function api(url, options={}) {
+  const res=await fetch('/api'+url,{headers:{'Content-Type':'application/json'},...options});
+  const data=await res.json(); if(!res.ok) throw new Error(data.error||'Request failed'); return data;
+}
+function escapeHtml(s=''){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function init(){
+  try{await api('/health');$('connection').textContent='● Atlas connected';$('connection').className='pill';
+    plans=await api('/plans');renderPlans();await loadHistory();await loadProgress();await loadSleep();renderPlanEditor();
+  }catch(e){$('connection').textContent='Server / database unavailable';alert(e.message);}
+}
+function renderPlans(){
+  $('planChoices').innerHTML=plans.map(p=>`<button class="plan" data-plan="${escapeHtml(p.name)}"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.description||'Custom workout')} · ${p.exercises.length} exercises</small></button>`).join('');
+  document.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>startWorkout(b.dataset.plan));
+}
+async function startWorkout(name){
+  currentPlan=plans.find(p=>p.name===name);if(!currentPlan)return;
+  const exercises=currentPlan.exercises.map(e=>({name:e.name,muscleGroup:e.muscleGroup,sets:[]}));
+  currentWorkout=await api('/workouts',{method:'POST',body:JSON.stringify({planName:name,exercises})});
+  $('activeWorkout').classList.remove('hidden');$('workoutTitle').textContent=name+' DAY';$('workoutMeta').textContent='STARTED '+new Date(currentWorkout.startedAt).toLocaleString();
+  renderExercises();
+}
+function renderExercises(){
+  $('exerciseList').innerHTML=currentPlan.exercises.map((e,i)=>`<div class="exercise" data-ex="${i}">
+    <h3>${escapeHtml(e.name)}</h3><div class="muted">${escapeHtml(e.muscleGroup||'')} · Target ${e.targetSets} sets × ${escapeHtml(e.targetReps)} · Rest ${e.restSeconds}s</div>
+    <div class="sets"></div><div class="actions"><button class="secondary add-set">+ Add set</button></div>
+  </div>`).join('');
+  document.querySelectorAll('.exercise').forEach((card,i)=>{for(let s=1;s<=currentPlan.exercises[i].targetSets;s++)addSetRow(card,i,s);card.querySelector('.add-set').onclick=()=>addSetRow(card,i,card.querySelectorAll('.setrow').length+1);});
+}
+function addSetRow(card,exerciseIndex,setNo){
+  const row=document.createElement('div');row.className='setrow';
+  row.innerHTML=`<strong>Set ${setNo}</strong><input type="number" min="0" placeholder="Reps" aria-label="Reps"><input type="number" min="0" step="0.5" placeholder="Weight kg" aria-label="Weight kg"><button>Complete</button>`;
+  row.querySelector('button').onclick=async()=>{
+    const [reps,weight]=row.querySelectorAll('input');if(reps.value===''||Number(reps.value)<0)return alert('Enter completed reps');
+    const set={setNumber:setNo,reps:Number(reps.value),weightKg:Number(weight.value||0),completed:true};
+    currentWorkout.exercises[exerciseIndex].sets.push(set);
+    await api('/workouts/'+currentWorkout._id,{method:'PATCH',body:JSON.stringify({exercises:currentWorkout.exercises})});
+    row.querySelector('button').textContent='Saved ✓';row.querySelector('button').disabled=true;reps.disabled=true;weight.disabled=true;
+    startRestTimer(currentPlan.exercises[exerciseIndex].restSeconds);
+  };
+  card.querySelector('.sets').appendChild(row);
+}
+function startRestTimer(seconds){clearInterval(timer);let left=seconds;const button=document.createElement('div');button.className='muted';button.textContent=`Rest: ${left}s`;document.querySelector('.actions')?.appendChild(button);timer=setInterval(()=>{left--;button.textContent=left>0?`Rest: ${left}s`:'Rest complete';if(left<=0)clearInterval(timer);},1000);}
+$('finishWorkout').onclick=async()=>{if(!currentWorkout)return;await api('/workouts/'+currentWorkout._id,{method:'PATCH',body:JSON.stringify({status:'completed',finishedAt:new Date()})});currentWorkout=null;currentPlan=null;$('activeWorkout').classList.add('hidden');alert('Workout saved! Your session is now in history.');await loadHistory();await loadProgress();};
+$('cancelWorkout').onclick=async()=>{if(!currentWorkout)return;if(!confirm('Cancel this workout?'))return;await api('/workouts/'+currentWorkout._id,{method:'PATCH',body:JSON.stringify({status:'cancelled'})});currentWorkout=null;currentPlan=null;$('activeWorkout').classList.add('hidden');};
+async function loadHistory(){const rows=await api('/workouts');$('historyList').innerHTML=rows.length?`<table><tr><th>Workout</th><th>Date</th><th>Status</th><th>Sets</th></tr>${rows.map(w=>`<tr><td>${escapeHtml(w.planName)}</td><td>${new Date(w.startedAt).toLocaleDateString()}</td><td>${escapeHtml(w.status)}</td><td>${w.exercises.reduce((n,e)=>n+(e.sets||[]).filter(s=>s.completed).length,0)}</td></tr>`).join('')}</table>`:'No workouts recorded yet.';}
+async function loadProgress(){const d=await api('/analytics/summary');$('metrics').innerHTML=[['Workouts',d.workouts],['Sets completed',d.totalSets],['Total reps',d.totalReps],['Volume lifted',Math.round(d.totalVolumeKg)+' kg']].map(([l,v])=>`<div class="card"><div class="muted">${l}</div><div class="metric">${v}</div></div>`).join('');$('prs').innerHTML=Object.keys(d.bestWeightByExercise).length?Object.entries(d.bestWeightByExercise).map(([n,w])=>`<p>${escapeHtml(n)} <strong style="float:right">${w} kg</strong></p>`).join(''):'No PR data yet.';}
+async function loadSleep(){const rows=await api('/sleep');const active=rows.find(x=>!x.wokeAt);$('sleepStart').disabled=!!active;$('sleepWake').disabled=!active;$('sleepState').textContent=active?'Sleep session started at '+new Date(active.startedAt).toLocaleString():'No active sleep session.';$('sleepHistory').innerHTML=rows.filter(x=>x.wokeAt).map(x=>`<p>${new Date(x.startedAt).toLocaleDateString()} · ${(x.durationMinutes/60).toFixed(1)} hours</p>`).join('')||'No sleep records yet.';}
+$('sleepStart').onclick=async()=>{try{await api('/sleep/start',{method:'POST',body:'{}'});await loadSleep();}catch(e){alert(e.message);}};
+$('sleepWake').onclick=async()=>{try{await api('/sleep/wake',{method:'POST',body:'{}'});await loadSleep();}catch(e){alert(e.message);}};
+function renderPlanEditor(){$('planEditor').innerHTML=plans.map(p=>`<div class="card" style="margin:12px 0"><h3>${escapeHtml(p.name)}</h3>${p.exercises.map((e,i)=>`<div style="display:grid;grid-template-columns:1fr 75px 90px;gap:8px;margin:10px 0;align-items:center"><span>${escapeHtml(e.name)}</span><input type="number" min="1" value="${e.targetSets}" data-field="sets" data-plan="${p.name}" data-index="${i}"><input value="${escapeHtml(e.targetReps)}" data-field="reps" data-plan="${p.name}" data-index="${i}" aria-label="Target reps"></div>`).join('')}<button class="save-plan" data-name="${p.name}">Save ${p.name}</button></div>`).join('');document.querySelectorAll('.save-plan').forEach(b=>b.onclick=async()=>{const p=plans.find(x=>x.name===b.dataset.name);document.querySelectorAll(`[data-plan="${p.name}"]`).forEach(inp=>{const e=p.exercises[Number(inp.dataset.index)];if(inp.dataset.field==='sets')e.targetSets=Number(inp.value);else e.targetReps=inp.value;});await api('/plans/'+p.name,{method:'PATCH',body:JSON.stringify({exercises:p.exercises})});plans=await api('/plans');renderPlanEditor();renderPlans();alert('Plan updated.');});}
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{document.querySelectorAll('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));['workout','history','progress','sleep','plans'].forEach(t=>$('tab-'+t).classList.toggle('hidden',t!==b.dataset.tab));});
+init();
+</script>
+</body></html>
