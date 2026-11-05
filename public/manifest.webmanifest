@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "FitLog — Train with intention",
+  "short_name": "FitLog",
+  "description": "Your personal strength training and recovery journal.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#10120f",
+  "theme_color": "#10120f",
+  "categories": [
+    "health",
+    "fitness",
+    "lifestyle"
+  ],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
