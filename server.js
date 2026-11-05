@@ -130,7 +130,7 @@ app.patch("/api/workouts/:id", async (req, res, next) => {
 app.get("/api/workouts", async (req, res, next) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 100, 500);
-    res.json(await Workout.find().sort({ startedAt: -1 }).limit(limit));
+    res.json(await Workout.find({ status: "completed" }).sort({ startedAt: -1 }).limit(limit));
   } catch (e) { next(e); }
 });
 
